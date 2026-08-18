@@ -1,0 +1,154 @@
+{
+  "href": "https://api.ebay.com/buy/browse/v1/item_summary/search?q=sony+a7+iii&limit=20",
+  "total": 1423,
+  "limit": 20,
+  "offset": 0,
+  "itemSummaries": [
+    {
+      "itemId": "v1|285912345678|0",
+      "title": "Sony Alpha A7 III Mirrorless Camera Body - Excellent Condition",
+      "price": { "value": "849.00", "currency": "GBP" },
+      "condition": "Used",
+      "conditionId": "3000",
+      "buyingOptions": ["FIXED_PRICE"],
+      "itemWebUrl": "https://www.ebay.co.uk/itm/285912345678",
+      "seller": {
+        "username": "camera_world_uk",
+        "feedbackPercentage": "99.4",
+        "feedbackScore": 18422
+      },
+      "shippingOptions": [
+        {
+          "shippingCostType": "FIXED",
+          "shippingCost": { "value": "4.99", "currency": "GBP" }
+        }
+      ]
+    },
+    {
+      "itemId": "v1|166012345679|0",
+      "title": "Sony A7 III Body Only - Low Shutter Count",
+      "price": { "value": "1050.00", "currency": "GBP" },
+      "currentBidPrice": { "value": "610.00", "currency": "GBP" },
+      "condition": "Used",
+      "conditionId": "3000",
+      "buyingOptions": ["AUCTION"],
+      "bidCount": 14,
+      "itemEndDate": "2026-08-18T15:30:00.000Z",
+      "itemWebUrl": "https://www.ebay.co.uk/itm/166012345679",
+      "seller": {
+        "username": "pixelpusher99",
+        "feedbackPercentage": "98.1",
+        "feedbackScore": 342
+      },
+      "shippingOptions": [
+        {
+          "shippingCostType": "FIXED",
+          "shippingCost": { "value": "0.00", "currency": "GBP" }
+        }
+      ]
+    },
+    {
+      "itemId": "v1|186012345680|0",
+      "title": "Sony A7III Body - collection only, calculated postage",
+      "price": { "value": "780.00", "currency": "GBP" },
+      "condition": "Used",
+      "conditionId": "3000",
+      "buyingOptions": ["FIXED_PRICE"],
+      "itemWebUrl": "https://www.ebay.co.uk/itm/186012345680",
+      "seller": {
+        "username": "clearance_deals",
+        "feedbackPercentage": "97.0",
+        "feedbackScore": 88
+      }
+    },
+    {
+      "itemId": "v1|196012345681|0",
+      "title": "Sony A7 III BRAND NEW SEALED UK STOCK",
+      "price": { "value": "1499.00", "currency": "GBP" },
+      "condition": "New",
+      "conditionId": "1000",
+      "buyingOptions": ["FIXED_PRICE", "BEST_OFFER"],
+      "itemWebUrl": "https://www.ebay.co.uk/itm/196012345681",
+      "seller": {
+        "username": "uk_photo_direct",
+        "feedbackPercentage": "100.0",
+        "feedbackScore": 5210
+      },
+      "shippingOptions": [
+        {
+          "shippingCostType": "FIXED",
+          "shippingCost": { "value": "0.00", "currency": "GBP" }
+        },
+        {
+          "shippingCostType": "FIXED",
+          "shippingCost": { "value": "9.99", "currency": "GBP" }
+        }
+      ]
+    },
+    {
+      "itemId": "v1|206012345682|0",
+      "title": "Sony A7 III - FOR PARTS NOT WORKING - shutter fault",
+      "price": { "value": "220.00", "currency": "GBP" },
+      "condition": "For parts or not working",
+      "conditionId": "7000",
+      "buyingOptions": ["FIXED_PRICE"],
+      "itemWebUrl": "https://www.ebay.co.uk/itm/206012345682",
+      "seller": {
+        "username": "spares_n_bits",
+        "feedbackPercentage": "94.2",
+        "feedbackScore": 1201
+      },
+      "shippingOptions": [
+        {
+          "shippingCostType": "FIXED",
+          "shippingCost": { "value": "6.50", "currency": "GBP" }
+        }
+      ]
+    },
+    {
+      "itemId": "v1|216012345683|0",
+      "title": "Sony A7 III Body (US import)",
+      "price": { "value": "999.00", "currency": "USD" },
+      "condition": "Used",
+      "conditionId": "3000",
+      "buyingOptions": ["FIXED_PRICE"],
+      "itemWebUrl": "https://www.ebay.com/itm/216012345683",
+      "seller": {
+        "username": "us_camera_outlet",
+        "feedbackPercentage": "99.9",
+        "feedbackScore": 9001
+      },
+      "shippingOptions": [
+        {
+          "shippingCostType": "CALCULATED",
+          "shippingCost": { "value": "35.00", "currency": "USD" }
+        }
+      ]
+    },
+    {
+      "itemId": "v1|226012345684|0",
+      "title": "Sony A7 III refurbished by manufacturer, 12mo warranty",
+      "price": { "value": "1120.00", "currency": "GBP" },
+      "condition": "Manufacturer refurbished",
+      "conditionId": "2000",
+      "buyingOptions": ["FIXED_PRICE"],
+      "itemWebUrl": "https://www.ebay.co.uk/itm/226012345684",
+      "seller": {
+        "username": "sony_certified",
+        "feedbackPercentage": "99.8",
+        "feedbackScore": 24000
+      },
+      "shippingOptions": [
+        {
+          "shippingCostType": "FIXED",
+          "shippingCost": { "value": "0.00", "currency": "GBP" }
+        }
+      ]
+    },
+    {
+      "title": "Broken record with no item id",
+      "price": { "value": "10.00", "currency": "GBP" },
+      "buyingOptions": ["FIXED_PRICE"]
+    }
+  ]
+}

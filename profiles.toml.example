@@ -1,0 +1,45 @@
+# Prices are in pounds. Copy to profiles.toml and edit.
+
+[settings]
+marketplace            = "EBAY_GB"
+currency               = "GBP"
+db_path                = "tracker.db"
+sweep_minutes          = 30
+endgame_seconds        = 60
+endgame_horizon_minutes = 15
+heartbeat_hours        = 6
+results_per_profile    = 20
+# dry_run logs alerts instead of sending them - leave true until you trust it
+dry_run                = true
+
+[[profile]]
+id                = "a7iii"
+name              = "Sony A7 III body"
+query             = "sony a7 iii body"
+ceiling           = 1200          # never alert above this landed cost
+target            = 950           # your estimate, used until real data lands
+min_feedback_pct  = 97.0
+min_feedback_count = 25
+
+  [profile.filters]
+  conditions     = ["USED", "SELLER_REFURBISHED"]
+  buying_options = ["FIXED_PRICE", "AUCTION"]
+
+[[profile]]
+id      = "rtx4090"
+name    = "RTX 4090"
+query   = "rtx 4090"
+ceiling = 1600
+target  = 1300
+
+  [profile.filters]
+  buying_options = ["FIXED_PRICE"]
+
+[[profile]]
+id      = "sub16610"
+name    = "Rolex Submariner 16610"
+query   = "rolex submariner 16610"
+ceiling = 9000
+target  = 7500
+min_feedback_count = 100
+enabled = false
