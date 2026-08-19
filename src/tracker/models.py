@@ -7,6 +7,7 @@ from enum import Enum
 
 
 class Verdict(str, Enum):
+    PRIORITY = "PRIORITY"
     BUY_NOW = "BUY_NOW"
     GOOD_DEAL = "GOOD_DEAL"
     WATCH = "WATCH"
@@ -15,6 +16,7 @@ class Verdict(str, Enum):
     @property
     def emoji(self) -> str:
         return {
+            Verdict.PRIORITY: "\U0001f6a8",
             Verdict.BUY_NOW: "\U0001f525",
             Verdict.GOOD_DEAL: "\U0001f7e2",
             Verdict.WATCH: "\U0001f7e1",
@@ -24,6 +26,17 @@ class Verdict(str, Enum):
     @property
     def notifiable(self) -> bool:
         return self is not Verdict.SKIP
+
+    @property
+    def rank(self) -> int:
+        """Ordering for display, and for deciding what counts as an upgrade."""
+        return {
+            Verdict.SKIP: 0,
+            Verdict.WATCH: 1,
+            Verdict.GOOD_DEAL: 2,
+            Verdict.BUY_NOW: 3,
+            Verdict.PRIORITY: 4,
+        }[self]
 
 
 class ConditionBucket(str, Enum):

@@ -33,7 +33,13 @@ def _time_left(end: datetime | None, now: datetime) -> str | None:
     return f"{hours}h {minutes:02d}m" if hours else f"{minutes}m"
 
 
-def format_message(listing: Listing, decision: Decision, now: datetime) -> str:
+def format_message(
+    listing: Listing,
+    decision: Decision,
+    now: datetime,
+    judgement=None,
+    margin=None,
+) -> str:
     """HTML-formatted Telegram message. Everything user-supplied is escaped."""
     verdict = decision.verdict
     lines = [
@@ -80,6 +86,19 @@ def format_message(listing: Listing, decision: Decision, now: datetime) -> str:
             else ""
         )
         lines.append(f"Seller: {html.escape(listing.seller_name)}{fb}")
+
+    if margin is not None and margin.margin_pence > 0:
+        lines.append(
+            f"Est. resale margin: <b>{_money(margin.margin_pence, listing.currency)}</b>"
+            f" ({margin.margin_pct:.0%} on cost, after fees and postage)"
+        )
+
+    if judgement is not None:
+        lines.append("")
+        lines.append(f"<i>{html.escape(judgement.rationale)}</i>")
+        if judgement.concerns:
+            checks = "; ".join(html.escape(c) for c in judgement.concerns[:3])
+            lines.append(f"Check: {checks}")
 
     flags = [r for r in decision.reasons if r in ("provisional_baseline", "shipping_unknown")]
     if flags:
@@ -132,7 +151,12 @@ class Notifier:
         return True
 
     def maybe_notify(
-        self, listing: Listing, decision: Decision, now: datetime
+        self,
+        listing: Listing,
+        decision: Decision,
+        now: datetime,
+        judgement=None,
+        margin=None,
     ) -> bool:
         """Send unless this (item, verdict) pair has already been sent.
 
@@ -143,7 +167,9 @@ class Notifier:
         if self._store.already_notified(listing.item_id, decision.verdict):
             return False
 
-        if not self.send_raw(format_message(listing, decision, now)):
+        if not self.send_raw(
+            format_message(listing, decision, now, judgement, margin)
+        ):
             # Left unmarked on failure so the next sweep retries it.
             return False
 

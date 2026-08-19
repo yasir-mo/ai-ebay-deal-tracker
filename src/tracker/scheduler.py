@@ -5,12 +5,14 @@ reproducible from the database afterwards.
 """
 from __future__ import annotations
 
+import json
 import logging
 import time
 from datetime import datetime, timedelta, timezone
 
 from .config import Settings
 from .ebay.browse import BrowseClient, BrowseError
+from .margin import MarginConfig, estimate as estimate_margin
 from .models import ConditionBucket, Profile, Verdict
 from .normalise import normalise_all
 from .notify import Notifier
@@ -35,12 +37,15 @@ class Tracker:
         store: Store,
         client: BrowseClient,
         notifier: Notifier,
+        judge=None,
     ):
         self.settings = settings
         self.profiles = [p for p in profiles if p.enabled]
         self.store = store
         self.client = client
         self.notifier = notifier
+        self.judge = judge
+        self.margin_config = MarginConfig()
         self.errors_this_period = 0
 
     # -- jobs -------------------------------------------------------------
@@ -76,9 +81,7 @@ class Tracker:
 
             self._refresh_baselines(profile, listings, now)
 
-            for listing in listings:
-                if self._judge_and_notify(listing, profile, now):
-                    stats["alerts"] += 1
+            stats["alerts"] += self._decide_and_notify(listings, profile, now)
 
         log.info(
             "sweep done: %(profiles)d profiles, %(listings)d listings, "
@@ -120,8 +123,7 @@ class Tracker:
             self.store.record_price(listing, now)
             stats["checked"] += 1
 
-            if self._judge_and_notify(listing, profile, now):
-                stats["alerts"] += 1
+            stats["alerts"] += self._decide_and_notify([listing], profile, now)
 
         if stats["checked"]:
             log.info("endgame: %(checked)d checked, %(alerts)d alerts", stats)
@@ -184,13 +186,104 @@ class Tracker:
         sample = self.store.observation_sample(profile.id, bucket, now, WINDOW_DAYS)
         return compute_baseline(profile, bucket, sample)
 
-    def _judge_and_notify(self, listing, profile: Profile, now: datetime) -> bool:
-        baseline = self._baseline_for(profile, listing.bucket, now)
-        decision = score(listing, profile, baseline, now)
-        if decision.verdict is not Verdict.SKIP:
-            self.store.record_decision(decision, now)
-            return self.notifier.maybe_notify(listing, decision, now)
-        return False
+    def _decide_and_notify(self, listings, profile: Profile, now: datetime) -> int:
+        """Rules, then margin, then the model, then notify.
+
+        The model only ever sees listings the rules already rated worth
+        sending. That ordering is what keeps judging affordable: the cheap
+        deterministic pass rejects the bulk for nothing.
+        """
+        candidates = []
+        for listing in listings:
+            baseline = self._baseline_for(profile, listing.bucket, now)
+            decision = score(listing, profile, baseline, now)
+            if decision.verdict is Verdict.SKIP:
+                continue
+            margin = (
+                estimate_margin(listing, baseline, self.margin_config)
+                if baseline
+                else None
+            )
+            candidates.append((listing, decision, margin))
+
+        if not candidates:
+            return 0
+
+        judgements = self._judge(candidates, profile, now)
+
+        alerts = 0
+        for listing, decision, margin in candidates:
+            final = decision
+            judgement = judgements.get(listing.item_id)
+            if judgement is not None:
+                from .ai.stage import apply as apply_judgement
+
+                final = apply_judgement(
+                    decision, judgement, margin, self.margin_config
+                ).decision
+
+            if final.verdict is Verdict.SKIP:
+                # Recorded so a model rejection is auditable, never notified.
+                self.store.record_decision(final, now)
+                continue
+
+            self.store.record_decision(final, now)
+            if self.notifier.maybe_notify(listing, final, now, judgement, margin):
+                alerts += 1
+        return alerts
+
+    def _judge(self, candidates, profile: Profile, now: datetime) -> dict:
+        """Fetch cached judgements, judge the rest. Returns {item_id: Judgement}."""
+        if self.judge is None:
+            return {}
+
+        from .ai.prompt import render_listing
+        from .ai.schema import Judgement
+
+        out: dict = {}
+        to_judge = []
+
+        for listing, decision, margin in candidates:
+            cached = self.store.get_judgement(listing.item_id, listing.total_pence)
+            if cached:
+                out[listing.item_id] = Judgement(
+                    item_id=listing.item_id,
+                    is_target_item=bool(cached["is_target_item"]),
+                    condition_risk=cached["condition_risk"],
+                    resale_confidence=cached["resale_confidence"],
+                    concerns=json.loads(cached["concerns_json"]),
+                    verdict=cached["verdict"],
+                    rationale=cached["rationale"],
+                )
+                continue
+            to_judge.append(
+                render_listing(
+                    listing,
+                    profile,
+                    decision.baseline_pence,
+                    decision.discount_pct,
+                    margin,
+                )
+            )
+
+        if not to_judge:
+            return out
+
+        try:
+            fresh = self.judge.judge(to_judge, now.date())
+        except Exception:
+            log.exception("judging failed; continuing on rule verdicts alone")
+            return out
+
+        by_id = {c[0].item_id: c[0] for c in candidates}
+        for judgement in fresh:
+            out[judgement.item_id] = judgement
+            listing = by_id.get(judgement.item_id)
+            if listing is not None:
+                self.store.save_judgement(
+                    listing.item_id, listing.total_pence, judgement, now
+                )
+        return out
 
     # -- loop -------------------------------------------------------------
 

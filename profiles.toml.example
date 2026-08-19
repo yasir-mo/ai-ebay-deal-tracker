@@ -43,3 +43,13 @@ ceiling = 9000
 target  = 7500
 min_feedback_count = 100
 enabled = false
+
+# Optional model-based judging stage. Runs behind the rules, never instead of
+# them: only listings the rules already rated worth sending are judged.
+# Requires ANTHROPIC_API_KEY in .env and `pip install anthropic`.
+[ai]
+enabled       = false
+effort        = "medium"    # low | medium | high | xhigh | max
+batch_size    = 8           # listings per request; the main cost lever
+max_tokens    = 8000
+daily_budget  = 2.00        # pounds per day, hard stop when reached

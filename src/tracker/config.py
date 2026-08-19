@@ -29,6 +29,14 @@ class Settings:
     results_per_profile: int = 20
     dry_run: bool = False
 
+    # -- model judging stage (optional) --
+    ai_enabled: bool = False
+    ai_effort: str = "medium"
+    ai_batch_size: int = 8
+    ai_max_tokens: int = 8000
+    ai_daily_budget_pence: int = 20_000
+    ai_api_key: str | None = None
+
 
 def _pounds_to_pence(value) -> int:
     """Config is written in pounds because that is how humans think."""
@@ -43,7 +51,9 @@ def load_settings(path: str | Path = "profiles.toml") -> Settings:
     Keeping credentials out of the config file means it can be committed
     without redaction.
     """
-    raw = _read_toml(path).get("settings", {})
+    data = _read_toml(path)
+    raw = data.get("settings", {})
+    ai = data.get("ai", {})
 
     missing = [
         name
@@ -62,6 +72,11 @@ def load_settings(path: str | Path = "profiles.toml") -> Settings:
             + " (copy .env.example to .env and fill it in)"
         )
 
+    if ai.get("enabled") and not os.environ.get("ANTHROPIC_API_KEY"):
+        raise ConfigError(
+            "ai.enabled is true but ANTHROPIC_API_KEY is not set"
+        )
+
     return Settings(
         ebay_client_id=os.environ["EBAY_CLIENT_ID"],
         ebay_client_secret=os.environ["EBAY_CLIENT_SECRET"],
@@ -76,6 +91,12 @@ def load_settings(path: str | Path = "profiles.toml") -> Settings:
         heartbeat_hours=int(raw.get("heartbeat_hours", 6)),
         results_per_profile=int(raw.get("results_per_profile", 20)),
         dry_run=bool(raw.get("dry_run", False)),
+        ai_enabled=bool(ai.get("enabled", False)),
+        ai_effort=str(ai.get("effort", "medium")),
+        ai_batch_size=int(ai.get("batch_size", 8)),
+        ai_max_tokens=int(ai.get("max_tokens", 8000)),
+        ai_daily_budget_pence=_pounds_to_pence(ai.get("daily_budget", 200)),
+        ai_api_key=os.environ.get("ANTHROPIC_API_KEY"),
     )
 
 

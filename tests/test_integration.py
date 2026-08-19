@@ -309,3 +309,176 @@ class TestDryRun:
         tracker.sweep(NOW)
         tracker.sweep(NOW + timedelta(minutes=30))
         assert len(notifier.sent) == 1
+
+
+# --------------------------------------------------------------------------
+# Model judging stage, end to end through the scheduler
+# --------------------------------------------------------------------------
+
+
+class FakeJudge:
+    """Stands in for tracker.ai.judge.Judge."""
+
+    def __init__(self, judgements=None, error=None):
+        self._judgements = judgements or {}
+        self._error = error
+        self.batches = []
+
+    def judge(self, records, today):
+        self.batches.append(records)
+        if self._error:
+            raise self._error
+        from tracker.ai.schema import Judgement
+
+        out = []
+        for record in records:
+            spec = self._judgements.get(record["item_id"])
+            if spec:
+                out.append(Judgement(item_id=record["item_id"], **spec))
+        return out
+
+
+GOOD = dict(
+    is_target_item=True,
+    condition_risk="none",
+    resale_confidence="high",
+    concerns=[],
+    verdict="promote",
+    rationale="Genuine body, complete.",
+)
+ACCESSORY = dict(
+    is_target_item=False,
+    condition_risk="none",
+    resale_confidence="low",
+    concerns=["This is a lens cap, not the camera"],
+    verdict="reject",
+    rationale="Listing is an accessory.",
+)
+RISKY = dict(
+    is_target_item=True,
+    condition_risk="undisclosed",
+    resale_confidence="low",
+    concerns=["Description does not mention the shutter count"],
+    verdict="keep",
+    rationale="Suspiciously thin description for the price.",
+)
+
+
+def rig_with_judge(rig, pages, judgements=None, error=None, profile=PROFILE):
+    tracker, store, notifier, client = rig(pages, profile=profile)
+    tracker.judge = FakeJudge(judgements, error)
+    return tracker, store, notifier, client
+
+
+class TestJudgingPipeline:
+    def test_model_can_reject_an_accessory_the_rules_liked(self, rig):
+        """The whole point of the stage: rules see a cheap A7 III, the model
+        sees that it is a lens cap."""
+        tracker, store, notifier, _ = rig_with_judge(
+            rig, [[item("a", 600)]], {"a": ACCESSORY}
+        )
+        stats = tracker.sweep(NOW)
+
+        assert stats["alerts"] == 0
+        assert notifier.sent == []
+        row = store.conn.execute(
+            "SELECT verdict, reason_json FROM decisions WHERE item_id='a'"
+        ).fetchone()
+        assert row["verdict"] == "SKIP"
+        assert "ai_reject" in row["reason_json"]
+
+    def test_model_downgrades_on_undisclosed_condition(self, rig):
+        tracker, store, notifier, _ = rig_with_judge(
+            rig, [[item("a", 600)]], {"a": RISKY}
+        )
+        tracker.sweep(NOW)
+        assert "GOOD DEAL" in notifier.sent[0]
+        assert "thin description" in notifier.sent[0].lower()
+
+    def test_rationale_and_concerns_reach_the_alert(self, rig):
+        tracker, _, notifier, _ = rig_with_judge(
+            rig, [[item("a", 600)]], {"a": RISKY}
+        )
+        tracker.sweep(NOW)
+        assert "Check:" in notifier.sent[0]
+        assert "shutter count" in notifier.sent[0]
+
+    def test_only_rule_survivors_are_sent_to_the_model(self, rig):
+        """Cost control: the model must never see the rejects."""
+        page = [
+            item("cheap", 600),
+            item("market", 1000),
+            item("junk", 200, title="Sony A7 III for parts not working"),
+        ]
+        tracker, _, _, _ = rig_with_judge(rig, [page], {"cheap": GOOD})
+        tracker.sweep(NOW)
+
+        judged = [r["item_id"] for r in tracker.judge.batches[0]]
+        assert judged == ["cheap"]
+
+    def test_no_candidates_means_no_model_call(self, rig):
+        tracker, _, _, _ = rig_with_judge(rig, [[item("a", 1000)]], {})
+        tracker.sweep(NOW)
+        assert tracker.judge.batches == []
+
+    def test_judgement_is_cached_and_not_repaid_next_sweep(self, rig):
+        tracker, store, _, _ = rig_with_judge(
+            rig, [[item("a", 600)], [item("a", 600)]], {"a": RISKY}
+        )
+        tracker.sweep(NOW)
+        tracker.sweep(NOW + timedelta(minutes=30))
+
+        assert len(tracker.judge.batches) == 1
+        assert store.get_judgement("a", 60_000) is not None
+
+    def test_price_change_forces_a_re_judge(self, rig):
+        """A cached verdict is only valid for the price it was made about."""
+        tracker, _, _, _ = rig_with_judge(
+            rig, [[item("a", 600)], [item("a", 500)]], {"a": RISKY}
+        )
+        tracker.sweep(NOW)
+        tracker.sweep(NOW + timedelta(minutes=30))
+        assert len(tracker.judge.batches) == 2
+
+    def test_model_failure_falls_back_to_rule_verdicts(self, rig):
+        """An outage must not cost the user their alerts."""
+        tracker, _, notifier, _ = rig_with_judge(
+            rig, [[item("a", 600)]], error=RuntimeError("api down")
+        )
+        stats = tracker.sweep(NOW)
+        assert stats["alerts"] == 1
+        assert "BUY NOW" in notifier.sent[0]
+
+    def test_disabled_judge_leaves_rule_verdicts_untouched(self, rig):
+        tracker, _, notifier, _ = rig([[item("a", 600)]])
+        assert tracker.judge is None
+        assert tracker.sweep(NOW)["alerts"] == 1
+        assert "BUY NOW" in notifier.sent[0]
+
+
+class TestPriorityPromotion:
+    def test_priority_needs_a_real_baseline(self, rig):
+        """On a provisional baseline the margin is a guess, so no priority."""
+        tracker, _, notifier, _ = rig_with_judge(
+            rig, [[item("a", 400)]], {"a": GOOD}
+        )
+        tracker.sweep(NOW)
+        assert "BUY NOW" in notifier.sent[0]
+        assert "PRIORITY" not in notifier.sent[0]
+
+    def test_priority_fires_on_real_data_with_a_fat_margin(self, rig):
+        page = [item(f"i{n}", 1000) for n in range(MIN_SAMPLES + 5)]
+        page.append(item("bargain", 400))
+        tracker, _, notifier, _ = rig_with_judge(rig, [page], {"bargain": GOOD})
+        tracker.sweep(NOW)
+
+        priority = [m for m in notifier.sent if "PRIORITY" in m]
+        assert len(priority) == 1
+        assert "resale margin" in priority[0].lower()
+
+    def test_no_priority_when_margin_is_thin(self, rig):
+        page = [item(f"i{n}", 1000) for n in range(MIN_SAMPLES + 5)]
+        page.append(item("meh", 760))
+        tracker, _, notifier, _ = rig_with_judge(rig, [page], {"meh": GOOD})
+        tracker.sweep(NOW)
+        assert not any("PRIORITY" in m for m in notifier.sent)

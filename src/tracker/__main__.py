@@ -58,7 +58,20 @@ def build(config_path: str) -> tuple[Tracker, Store]:
         store,
         dry_run=settings.dry_run,
     )
-    return Tracker(settings, profiles, store, client, notifier), store
+
+    judge = None
+    if settings.ai_enabled:
+        from .ai.judge import DailyBudget, Judge, build_client
+
+        judge = Judge(
+            build_client(settings.ai_api_key),
+            DailyBudget(limit_pence=settings.ai_daily_budget_pence),
+            effort=settings.ai_effort,
+            batch_size=settings.ai_batch_size,
+            max_tokens=settings.ai_max_tokens,
+        )
+
+    return Tracker(settings, profiles, store, client, notifier, judge), store
 
 
 def main(argv=None) -> int:
