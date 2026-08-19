@@ -143,8 +143,16 @@ class Notifier:
         if self._store.already_notified(listing.item_id, decision.verdict):
             return False
 
-        if self.send_raw(format_message(listing, decision, now)):
-            self._store.mark_notified(listing.item_id, decision.verdict, now)
+        if not self.send_raw(format_message(listing, decision, now)):
+            # Left unmarked on failure so the next sweep retries it.
+            return False
+
+        if self._dry_run:
+            # Deliberately not marked. A dry run must not consume the one
+            # alert this (item, verdict) pair gets, or every deal found while
+            # trialling the config would be silently suppressed once the
+            # tracker is switched on for real.
             return True
-        # Left unmarked on failure so the next sweep retries it.
-        return False
+
+        self._store.mark_notified(listing.item_id, decision.verdict, now)
+        return True

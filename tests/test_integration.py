@@ -278,3 +278,34 @@ class TestHeartbeat:
         assert "Errors since last heartbeat: 3" in tracker.heartbeat(NOW)
         assert tracker.errors_this_period == 0
         assert "Errors since last heartbeat" not in tracker.heartbeat(NOW)
+
+
+class TestDryRun:
+    def test_dry_run_does_not_consume_the_alert(self, rig):
+        """A trial run must not suppress the alert once sending is enabled.
+
+        The README tells users to run with dry_run for a day first, so this
+        would otherwise swallow every deal found during that period.
+        """
+        tracker, store, notifier, _ = rig([[item("a", 600)]])
+        notifier._dry_run = True
+        tracker.sweep(NOW)
+
+        assert len(notifier.sent) == 1
+        assert store.already_notified("a", Verdict.BUY_NOW) is False
+
+    def test_alert_fires_for_real_after_a_dry_run(self, rig):
+        tracker, store, notifier, _ = rig([[item("a", 600)], [item("a", 600)]])
+        notifier._dry_run = True
+        tracker.sweep(NOW)
+        notifier._dry_run = False
+        tracker.sweep(NOW + timedelta(minutes=30))
+
+        assert len(notifier.sent) == 2
+        assert store.already_notified("a", Verdict.BUY_NOW) is True
+
+    def test_real_send_still_suppresses(self, rig):
+        tracker, store, notifier, _ = rig([[item("a", 600)], [item("a", 600)]])
+        tracker.sweep(NOW)
+        tracker.sweep(NOW + timedelta(minutes=30))
+        assert len(notifier.sent) == 1
