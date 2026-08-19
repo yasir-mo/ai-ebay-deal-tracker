@@ -74,6 +74,19 @@ CREATE TABLE IF NOT EXISTS decisions (
     PRIMARY KEY (item_id, verdict)
 );
 CREATE INDEX IF NOT EXISTS idx_decisions_decided ON decisions(decided_at);
+
+CREATE TABLE IF NOT EXISTS ai_judgements (
+    item_id           TEXT NOT NULL,
+    judged_at_price   INTEGER NOT NULL,
+    judged_at         TEXT NOT NULL,
+    is_target_item    INTEGER NOT NULL,
+    condition_risk    TEXT NOT NULL,
+    resale_confidence TEXT NOT NULL,
+    verdict           TEXT NOT NULL,
+    concerns_json     TEXT NOT NULL,
+    rationale         TEXT NOT NULL,
+    PRIMARY KEY (item_id, judged_at_price)
+);
 """
 
 
@@ -333,6 +346,59 @@ class Store:
             (outcome, item_id, verdict.value),
         )
         self.conn.commit()
+
+    # -- ai judgements ----------------------------------------------------
+
+    def get_judgement(self, item_id: str, total_pence: int) -> dict | None:
+        """Reuse a judgement only while the price is unchanged.
+
+        Keying on price is what stops the tracker paying to re-judge the same
+        unchanged listing 48 times a day, while still re-judging the moment
+        the thing it was judging actually changes.
+        """
+        row = self.conn.execute(
+            "SELECT * FROM ai_judgements WHERE item_id = ? AND judged_at_price = ?",
+            (item_id, total_pence),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def save_judgement(self, item_id: str, total_pence: int, judgement, now: datetime) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO ai_judgements (
+                item_id, judged_at_price, judged_at, is_target_item,
+                condition_risk, resale_confidence, verdict, concerns_json, rationale
+            ) VALUES (?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(item_id, judged_at_price) DO UPDATE SET
+                judged_at=excluded.judged_at,
+                is_target_item=excluded.is_target_item,
+                condition_risk=excluded.condition_risk,
+                resale_confidence=excluded.resale_confidence,
+                verdict=excluded.verdict,
+                concerns_json=excluded.concerns_json,
+                rationale=excluded.rationale
+            """,
+            (
+                item_id,
+                total_pence,
+                _iso(now),
+                int(judgement.is_target_item),
+                judgement.condition_risk,
+                judgement.resale_confidence,
+                judgement.verdict,
+                json.dumps(judgement.concerns),
+                judgement.rationale,
+            ),
+        )
+        self.conn.commit()
+
+    def prune_judgements(self, keep_days: int, now: datetime) -> int:
+        cutoff = _iso(now - timedelta(days=keep_days))
+        cur = self.conn.execute(
+            "DELETE FROM ai_judgements WHERE judged_at < ?", (cutoff,)
+        )
+        self.conn.commit()
+        return cur.rowcount
 
     # -- reporting --------------------------------------------------------
 

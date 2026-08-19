@@ -9,16 +9,16 @@ Telegram.
 
 ## Status
 
-Scoring is currently **deterministic rules**, not a model. The pipeline is
-built so that a model based stage drops in behind those rules without
-restructuring anything (see [Roadmap](#roadmap)), and that is the direction
-the project is going, but it is not there yet. Nothing in this repository
-calls an LLM today.
+Two scoring stages, in order. **Deterministic rules** always run and are
+sufficient on their own. An **optional model stage** then judges only the
+listings the rules already rated worth sending, and is off by default
+(`[ai] enabled = false`).
 
-The reason for that ordering is practical rather than ideological: a model
-scoring listings needs something to calibrate against, and until the tracker
-has collected its own price history there is nothing to calibrate with. Rules
-first, history second, model third.
+That ordering is the whole design. The rules reject the large majority of
+listings for nothing, so the model only ever sees what is genuinely ambiguous,
+which is both cheaper and the only place a model adds anything. If the model
+is disabled, unreachable, or out of budget, the tracker keeps sending
+rule-based alerts unchanged.
 
 ## What it compares against
 
@@ -97,6 +97,7 @@ Surviving listings are compared to the baseline for that search and condition:
 
 | Verdict | Rule |
 |---|---|
+| PRIORITY | Model stage only: strong resale margin on real data (see below) |
 | BUY NOW | Fixed price, at least 35% below |
 | GOOD DEAL | At least 20% below |
 | WATCH | Auction at least 30% below, closing within 24 hours |
@@ -164,31 +165,63 @@ in the developer console; `scripts/smoke.py` prints where to look.
 python -m pytest tests/ -q
 ```
 
-142 tests, no network access required. The important ones are in
-`test_scoring.py` (what counts as a deal), `test_normalise.py` (parsing real
-API responses), `test_browse.py` (filter syntax and retry behaviour) and
-`test_integration.py` (the whole pipeline against a fake eBay and a fake
-Telegram).
+198 tests, no network access required and no API keys. The important ones are
+in `test_scoring.py` (what counts as a deal), `test_normalise.py` (parsing real
+API responses), `test_browse.py` (filter syntax and retry behaviour),
+`test_ai_stage.py` (judging, budget enforcement, refusal and failure handling)
+and `test_integration.py` (the whole pipeline against a fake eBay, a fake
+Telegram and a fake model).
+
+## The model stage
+
+Off by default. To enable it, set `[ai] enabled = true`, put an
+`ANTHROPIC_API_KEY` in `.env`, and `pip install anthropic`.
+
+It is asked only the things rules genuinely cannot judge:
+
+* **Is this actually the item?** The most common failure in this data is an
+  accessory, a spare part, a case, a manual, an empty box, or a different
+  model that merely mentions the target in its title. A price far below market
+  is more often one of those than a real bargain.
+* **Does the description contradict the stated condition,** or is it
+  conspicuously thin for the money being asked?
+* **Could this be resold near the going rate?**
+
+What it is allowed to do with the answer is deliberately asymmetric. It can
+always reject or downgrade. It can only promote to PRIORITY when the rules,
+the margin model, and the model itself all agree: a real baseline built from
+observed history, an estimated margin clearing both thresholds, and high
+confidence from the model. A provisional baseline can never produce a priority
+alert, because calling something arbitrage when the market price is a number
+you typed in yourself is the fastest way to lose money with this tool.
+
+### Cost control
+
+Four mechanisms, in descending order of how much they save:
+
+1. **The rules run first.** The model never sees a listing the rules rejected.
+2. **Batching.** One request judges up to `batch_size` listings, so
+   per-request overhead and the cached prompt are paid once, not once each.
+3. **Prompt caching.** The system prompt is byte-stable across every request,
+   so all but the first call read it at a fraction of the input price.
+4. **Verdict reuse.** A judgement is cached against the price it was made
+   about. An unchanged listing is never re-judged; a repriced one always is.
+
+On top of that, `daily_budget` is a hard stop rather than a warning. When the
+estimated spend for the day is reached, judging stops and the tracker carries
+on with rule verdicts alone.
+
+### Estimated resale margin
+
+`margin.py` works out what a listing could return if resold at the going rate,
+after eBay's fees and outbound postage. It discounts the baseline by a
+realisation factor first, because the baseline is what things are *asked* for
+and they generally sell for less. It is a ranking signal, not a valuation.
 
 ## Roadmap
 
-The planned model based stage sits behind the existing rules rather than
-replacing them. `scoring.py` is a pure function with no I/O specifically so
-this can be added without restructuring anything else.
-
-The intended shape:
-
-1. Rules run first and reject the obvious cases, which is most of the volume.
-2. Only the survivors go to a model, since sending every listing would be
-   expensive and inconsistent for no benefit.
-3. The model is asked the things rules genuinely cannot judge: is this the
-   actual item or an accessory or a compatible-with listing, does the
-   description contradict the stated condition, is the photo a stock image.
-4. Verdicts are recorded either way, and `decisions.outcome` is filled in by
-   hand, which is what gives something to calibrate against later.
-
-Also planned: detecting relists under a changed item id, and per search poll
-intervals rather than one global sweep.
+Detecting relists under a changed item id, and per search poll intervals
+rather than one global sweep.
 
 ## Licence
 

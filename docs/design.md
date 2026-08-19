@@ -27,16 +27,69 @@ its own as history builds up.
 | Config | TOML via stdlib `tomllib` | Avoids a YAML dependency |
 | HTTP | `requests` | Sync is sufficient at this volume |
 
-## Not included yet
+## Not included
 
-* Model based scoring. This is on the roadmap, and `scoring.py` is written as
-  a pure function specifically so it can be added behind the rules without
-  restructuring. It is not implemented; nothing here calls an LLM today. The
-  ordering is deliberate: a model needs history to calibrate against, and the
-  tracker has to collect that history first.
 * Sold price comparison, for the access reason above.
 * Detecting relists under a changed item id.
 * Buying anything. The tracker notifies, the human decides.
+
+## The model stage
+
+Optional and off by default. It runs *behind* the rules, never instead of
+them, and the ordering is the entire cost strategy: the deterministic pass
+rejects the large majority of listings for nothing, so the model only sees
+what is genuinely ambiguous.
+
+`scoring.py` stays pure and model-free. All model code lives under
+`tracker/ai/`, and `ai/stage.py` is the only place a model verdict is allowed
+to change a rule verdict.
+
+| Module | Responsibility |
+|---|---|
+| `ai/schema.py` | Pydantic models the response is constrained to |
+| `ai/prompt.py` | System prompt (byte-stable, therefore cacheable) and listing rendering |
+| `ai/judge.py` | Batching, structured-output call, budget, failure handling |
+| `ai/stage.py` | Folding a judgement into a rule decision |
+| `margin.py` | Estimated resale margin, used for priority |
+
+### What the model is allowed to change
+
+Asymmetric on purpose. It can always reject or downgrade, because "this is an
+accessory, not the camera" is exactly the judgement rules cannot make. It can
+only promote to PRIORITY when every independent signal agrees: a
+non-provisional baseline, a margin clearing both thresholds, a `promote`
+verdict, and high resale confidence. Anything less and the rule verdict
+stands.
+
+A missing judgement is not an error. If the model is disabled, out of budget,
+or unreachable, the rule decision passes through untouched and the alert still
+goes out.
+
+### Cost control
+
+1. Rules first, so most listings are never judged.
+2. Batching: one request per `batch_size` listings amortises the cached prefix.
+3. Prompt caching: the system prompt carries no timestamps, no per-run ids and
+   no listing detail, so it is identical on every request and read from cache
+   after the first.
+4. Judgement reuse keyed on `(item_id, price)`: an unchanged listing is never
+   re-judged, a repriced one always is.
+5. A hard daily budget that stops making calls rather than degrading quietly.
+
+The spend figure is estimated locally from token counts and published list
+prices. It guards a budget; it is not an invoice.
+
+### Failure handling specific to this stage
+
+* A safety refusal returns HTTP 200 with an empty body, so `stop_reason` is
+  checked before the parsed output is touched.
+* A response truncated at `max_tokens` is treated as a failure rather than
+  partial data, since a half-parsed batch would silently drop judgements.
+* Judgements are reconciled against the batch that was sent. An item id that
+  was not in the request, or appears twice, is discarded rather than allowed
+  to promote something that was never in scope.
+* One failed batch does not stop the others, and no model failure stops the
+  sweep.
 
 ## Structure
 
@@ -134,6 +187,7 @@ Then, by discount against baseline:
 
 | Verdict | Rule |
 |---|---|
+| PRIORITY | Model stage only; see below |
 | BUY NOW | Fixed price, 35% or more below |
 | GOOD DEAL | 20% or more below |
 | WATCH | Auction 30% or more below, closing within 24 hours |

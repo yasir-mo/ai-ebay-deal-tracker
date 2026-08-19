@@ -1,2 +1,6 @@
 requests>=2.31
+pydantic>=2.0
 pytest>=8.0
+
+# Only needed when the [ai] judging stage is enabled
+anthropic>=0.69
