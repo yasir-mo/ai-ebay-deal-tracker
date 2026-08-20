@@ -8,6 +8,7 @@ these rules, judging only what survives them.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from .models import Baseline, BuyingOption, Decision, Listing, Profile, Verdict
@@ -32,7 +33,8 @@ BLOCKLIST = (
 
 _BLOCK_RE = re.compile("|".join(re.escape(p) for p in BLOCKLIST), re.IGNORECASE)
 
-#: Thresholds. Tune these in one place.
+#: Defaults. These are the numbers the tracker ships with; the UI can override
+#: them per run by passing a Thresholds instance to score().
 BUY_NOW_DISCOUNT = 0.35
 GOOD_DEAL_DISCOUNT = 0.20
 WATCH_DISCOUNT = 0.30
@@ -43,6 +45,29 @@ WATCH_HORIZON = timedelta(hours=24)
 SCAM_FLOOR = 0.15
 
 
+@dataclass(frozen=True)
+class Thresholds:
+    """Tunable scoring numbers, injected rather than read from globals.
+
+    Passing these in is what lets the settings screen re-score stored listings
+    under candidate values and report what would have alerted, before anything
+    is committed. Tuning blind is how you end up either spammed or silent.
+    """
+
+    buy_now_discount: float = BUY_NOW_DISCOUNT
+    good_deal_discount: float = GOOD_DEAL_DISCOUNT
+    watch_discount: float = WATCH_DISCOUNT
+    scam_floor: float = SCAM_FLOOR
+    watch_horizon_hours: int = 24
+
+    @property
+    def watch_horizon(self) -> timedelta:
+        return timedelta(hours=self.watch_horizon_hours)
+
+
+DEFAULT_THRESHOLDS = Thresholds()
+
+
 def discount_pct(total_pence: int, baseline_pence: int) -> float:
     """Fraction below baseline, in [0, 1]. Negative when above baseline."""
     if baseline_pence <= 0:
@@ -50,7 +75,12 @@ def discount_pct(total_pence: int, baseline_pence: int) -> float:
     return (baseline_pence - total_pence) / baseline_pence
 
 
-def _hard_rejects(listing: Listing, profile: Profile, baseline: Baseline | None) -> list[str]:
+def _hard_rejects(
+    listing: Listing,
+    profile: Profile,
+    baseline: Baseline | None,
+    thresholds: Thresholds,
+) -> list[str]:
     reasons: list[str] = []
 
     match = _BLOCK_RE.search(listing.title)
@@ -76,7 +106,10 @@ def _hard_rejects(listing: Listing, profile: Profile, baseline: Baseline | None)
     if listing.total_pence > profile.ceiling_pence:
         reasons.append(f"over_ceiling:{listing.total_pence}>{profile.ceiling_pence}")
 
-    if baseline is not None and listing.total_pence < baseline.median_pence * SCAM_FLOOR:
+    if (
+        baseline is not None
+        and listing.total_pence < baseline.median_pence * thresholds.scam_floor
+    ):
         reasons.append("implausibly_cheap")
 
     return reasons
@@ -87,9 +120,11 @@ def score(
     profile: Profile,
     baseline: Baseline | None,
     now: datetime,
+    thresholds: Thresholds | None = None,
 ) -> Decision:
     """Classify one listing. `now` is injected so tests need no clock control."""
-    reasons = _hard_rejects(listing, profile, baseline)
+    thresholds = thresholds or DEFAULT_THRESHOLDS
+    reasons = _hard_rejects(listing, profile, baseline, thresholds)
     if reasons:
         return Decision(
             item_id=listing.item_id,
@@ -120,20 +155,23 @@ def score(
 
     is_auction = listing.buying_option is BuyingOption.AUCTION
 
-    if not is_auction and disc >= BUY_NOW_DISCOUNT:
+    if not is_auction and disc >= thresholds.buy_now_discount:
         verdict = Verdict.BUY_NOW
-    elif disc >= GOOD_DEAL_DISCOUNT and not is_auction:
+    elif disc >= thresholds.good_deal_discount and not is_auction:
         verdict = Verdict.GOOD_DEAL
-    elif is_auction and disc >= WATCH_DISCOUNT:
+    elif is_auction and disc >= thresholds.watch_discount:
         # An auction's current price is not its final price, so it never
         # earns BUY_NOW - only a WATCH, and only if it ends soon enough
         # to be actionable.
-        if listing.end_time is not None and listing.end_time - now <= WATCH_HORIZON:
+        if (
+            listing.end_time is not None
+            and listing.end_time - now <= thresholds.watch_horizon
+        ):
             verdict = Verdict.WATCH
             reasons.append(f"ends_in:{_fmt_delta(listing.end_time - now)}")
         else:
             reasons.append("ends_too_far_out")
-    elif is_auction and disc >= GOOD_DEAL_DISCOUNT:
+    elif is_auction and disc >= thresholds.good_deal_discount:
         reasons.append("auction_below_watch_threshold")
 
     if not listing.shipping_known and verdict is not Verdict.SKIP:

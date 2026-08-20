@@ -17,7 +17,7 @@ from .models import ConditionBucket, Profile, Verdict
 from .normalise import normalise_all
 from .notify import Notifier
 from .pricing import MIN_SAMPLES, WINDOW_DAYS, compute_baseline
-from .scoring import score
+from .scoring import DEFAULT_THRESHOLDS, score
 from .store import Store
 
 log = logging.getLogger(__name__)
@@ -46,6 +46,7 @@ class Tracker:
         self.notifier = notifier
         self.judge = judge
         self.margin_config = MarginConfig()
+        self.thresholds = DEFAULT_THRESHOLDS
         self.errors_this_period = 0
 
     # -- jobs -------------------------------------------------------------
@@ -55,6 +56,7 @@ class Tracker:
         now = now or utcnow()
         stats = {"profiles": 0, "listings": 0, "alerts": 0, "errors": 0}
 
+        self._reload_config()
         self.store.deactivate_ended(now)
 
         for profile in self.profiles:
@@ -161,6 +163,21 @@ class Tracker:
 
     # -- internals --------------------------------------------------------
 
+    def _reload_config(self) -> None:
+        """Pick up dashboard edits without a restart.
+
+        Cheap: two indexed reads against a local SQLite file, once per sweep.
+        """
+        try:
+            from .web.server import load_thresholds
+
+            stored = self.store.list_profiles(include_disabled=False)
+            if stored:
+                self.profiles = stored
+            self.thresholds = load_thresholds(self.store)
+        except Exception:
+            log.exception("could not reload config; continuing with what is loaded")
+
     def _is_cold(self, profile: Profile) -> bool:
         """True when no condition bucket yet has a real (non-provisional) baseline."""
         for bucket in ConditionBucket:
@@ -196,7 +213,7 @@ class Tracker:
         candidates = []
         for listing in listings:
             baseline = self._baseline_for(profile, listing.bucket, now)
-            decision = score(listing, profile, baseline, now)
+            decision = score(listing, profile, baseline, now, self.thresholds)
             if decision.verdict is Verdict.SKIP:
                 continue
             margin = (

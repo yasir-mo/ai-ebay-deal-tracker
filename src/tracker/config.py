@@ -37,6 +37,12 @@ class Settings:
     ai_daily_budget_pence: int = 20_000
     ai_api_key: str | None = None
 
+    # -- dashboard --
+    web_enabled: bool = True
+    web_host: str = "127.0.0.1"
+    web_port: int = 8000
+    web_token: str | None = None
+
 
 def _pounds_to_pence(value) -> int:
     """Config is written in pounds because that is how humans think."""
@@ -45,15 +51,22 @@ def _pounds_to_pence(value) -> int:
     return int((Decimal(str(value)) * 100).to_integral_value())
 
 
-def load_settings(path: str | Path = "profiles.toml") -> Settings:
+def load_settings(
+    path: str | Path = "profiles.toml", require_secrets: bool = True
+) -> Settings:
     """Secrets come from the environment, everything else from TOML.
 
     Keeping credentials out of the config file means it can be committed
     without redaction.
+
+    `require_secrets` is False for commands that only read the database. The
+    dashboard never calls eBay or Telegram, so demanding those credentials
+    just to look at what has already been collected is a pointless barrier.
     """
     data = _read_toml(path)
     raw = data.get("settings", {})
     ai = data.get("ai", {})
+    web = data.get("web", {})
 
     missing = [
         name
@@ -65,7 +78,7 @@ def load_settings(path: str | Path = "profiles.toml") -> Settings:
         )
         if not os.environ.get(name)
     ]
-    if missing:
+    if missing and require_secrets:
         raise ConfigError(
             "missing environment variables: "
             + ", ".join(missing)
@@ -78,10 +91,10 @@ def load_settings(path: str | Path = "profiles.toml") -> Settings:
         )
 
     return Settings(
-        ebay_client_id=os.environ["EBAY_CLIENT_ID"],
-        ebay_client_secret=os.environ["EBAY_CLIENT_SECRET"],
-        telegram_token=os.environ["TELEGRAM_BOT_TOKEN"],
-        telegram_chat_id=os.environ["TELEGRAM_CHAT_ID"],
+        ebay_client_id=os.environ.get("EBAY_CLIENT_ID", ""),
+        ebay_client_secret=os.environ.get("EBAY_CLIENT_SECRET", ""),
+        telegram_token=os.environ.get("TELEGRAM_BOT_TOKEN", ""),
+        telegram_chat_id=os.environ.get("TELEGRAM_CHAT_ID", ""),
         marketplace=raw.get("marketplace", "EBAY_GB"),
         currency=raw.get("currency", "GBP"),
         db_path=raw.get("db_path", "tracker.db"),
@@ -97,10 +110,14 @@ def load_settings(path: str | Path = "profiles.toml") -> Settings:
         ai_max_tokens=int(ai.get("max_tokens", 8000)),
         ai_daily_budget_pence=_pounds_to_pence(ai.get("daily_budget", 200)),
         ai_api_key=os.environ.get("ANTHROPIC_API_KEY"),
+        web_enabled=bool(web.get("enabled", True)),
+        web_host=str(web.get("host", "127.0.0.1")),
+        web_port=int(web.get("port", 8000)),
+        web_token=os.environ.get("WEB_TOKEN") or web.get("token") or None,
     )
 
 
-def load_profiles(path: str | Path = "profiles.toml") -> list[Profile]:
+def load_profiles_from_toml(path: str | Path = "profiles.toml") -> list[Profile]:
     data = _read_toml(path)
     entries = data.get("profile", [])
     if not entries:
@@ -152,3 +169,12 @@ def _read_toml(path: str | Path) -> dict:
         )
     with p.open("rb") as fh:
         return tomllib.load(fh)
+
+
+def load_profiles(path: str | Path = "profiles.toml") -> list[Profile]:
+    """Backwards-compatible alias.
+
+    The database is the source of truth once `import-config` has run; the TOML
+    file is a seed you edit by hand only for the initial import.
+    """
+    return load_profiles_from_toml(path)

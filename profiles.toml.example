@@ -12,6 +12,14 @@ results_per_profile    = 20
 # dry_run logs alerts instead of sending them - leave true until you trust it
 dry_run                = true
 
+# Local dashboard. Binds to localhost by default. Binding anything else
+# requires a token, since the dashboard records purchases and edits tracking.
+[web]
+enabled = true
+host    = "127.0.0.1"
+port    = 8000
+# token = "set-a-long-random-string"   # or set WEB_TOKEN in .env
+
 [[profile]]
 id                = "a7iii"
 name              = "Sony A7 III body"

@@ -4,8 +4,9 @@ Polls eBay on a schedule for a set of saved searches, builds its own price
 baselines over time, and sends a Telegram alert when something is listed well
 below the going rate.
 
-Single user, SQLite, one process. No external services beyond eBay and
-Telegram.
+Single user, SQLite, one process, and a local web dashboard for acting on what
+it finds. No external services beyond eBay and Telegram, and no dependencies
+beyond `requests` and `pydantic`.
 
 ## Status
 
@@ -80,7 +81,9 @@ Requires Python 3.11 or newer.
 
 | Command | Purpose |
 |---|---|
-| `python -m tracker run` | Run continuously: sweep, endgame and heartbeat loops. |
+| `python -m tracker run` | Run continuously: sweep, endgame and heartbeat loops, plus the dashboard. |
+| `python -m tracker web` | Dashboard only. Needs no eBay or Telegram credentials. |
+| `python -m tracker import-config` | Re-import searches from `profiles.toml` into the database. |
 | `python -m tracker once` | One sweep, then exit. Useful for cron or testing. |
 | `python -m tracker endgame` | Force a check of auctions about to close. |
 | `python -m tracker heartbeat` | Force a status message. |
@@ -130,28 +133,6 @@ Known limitation: a seller relisting under a new item id will alert again.
   searches are still too new to have a real baseline. If the tracker dies
   quietly you would otherwise not notice for days.
 
-## Running as a service
-
-```ini
-# /etc/systemd/system/ebay-tracker.service
-[Unit]
-Description=eBay deal tracker
-After=network-online.target
-
-[Service]
-Type=simple
-User=youruser
-WorkingDirectory=/opt/ebay-tracker
-ExecStart=/usr/bin/python3 -m tracker run
-Environment=PYTHONPATH=/opt/ebay-tracker/src
-Environment=PYTHONIOENCODING=utf-8
-Restart=always
-RestartSec=30
-
-[Install]
-WantedBy=multi-user.target
-```
-
 ## API quota
 
 One search call per profile per sweep. Twenty searches on a 30 minute sweep is
@@ -165,12 +146,64 @@ in the developer console; `scripts/smoke.py` prints where to look.
 python -m pytest tests/ -q
 ```
 
-198 tests, no network access required and no API keys. The important ones are
+244 tests, no network access required and no API keys. The important ones are
 in `test_scoring.py` (what counts as a deal), `test_normalise.py` (parsing real
 API responses), `test_browse.py` (filter syntax and retry behaviour),
 `test_ai_stage.py` (judging, budget enforcement, refusal and failure handling)
-and `test_integration.py` (the whole pipeline against a fake eBay, a fake
-Telegram and a fake model).
+`test_web.py` (the dashboard, against a real server on a real socket) and
+`test_integration.py` (the whole pipeline against a fake eBay, a fake Telegram
+and a fake model).
+
+## The dashboard
+
+`python -m tracker run` serves it on <http://127.0.0.1:8000>. Four screens:
+
+**Deals** is the one that matters. Alerts awaiting a decision, priority first
+and then by how soon you have to act, so a closing auction is never buried
+under a fixed-price listing that will still be there tomorrow. Each row carries
+the landed cost, the discount, the estimated margin, any warnings, and the
+model's reasoning if it ran. Bought, Missed and Not a deal record the outcome
+and clear the row.
+
+**Searches** adds, edits, enables and disables what gets tracked, and shows
+each baseline's health so you can see which searches are still too new to
+judge anything.
+
+**History** plots observed prices for a search and lists every decision
+recorded against it, including outcomes.
+
+**Settings** tunes the scoring thresholds. Preview re-scores your stored
+listings under the candidate numbers and reports what would have changed
+before anything is saved, because tuning thresholds blind is how you end up
+either spammed or silent.
+
+Searches and thresholds live in the database once imported, and the sweep loop
+re-reads both at the start of every pass, so edits take effect without a
+restart. `profiles.toml` is the initial seed, not the live config.
+
+### Reaching it from another machine
+
+The dashboard records purchases and edits what gets tracked, so it refuses to
+bind anything other than localhost unless a token is set. An SSH tunnel is the
+better answer:
+
+```bash
+ssh -N -L 8000:127.0.0.1:8000 you@your-server
+```
+
+If you would rather expose it, set `WEB_TOKEN` and open
+`http://host:8000/?token=...` once. That is a shared secret over plain HTTP,
+so put TLS in front of it on any network you do not control.
+
+## Deployment
+
+```bash
+cp .env.example .env && cp profiles.toml.example profiles.toml
+docker compose up -d
+```
+
+See [deploy/README.md](deploy/README.md) for the systemd unit, backups, and
+the remote-access options.
 
 ## The model stage
 

@@ -1,0 +1,25 @@
+[Unit]
+Description=eBay deal tracker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tracker
+WorkingDirectory=/opt/ebay-tracker
+EnvironmentFile=/opt/ebay-tracker/.env
+Environment=PYTHONPATH=/opt/ebay-tracker/src
+Environment=PYTHONIOENCODING=utf-8
+ExecStart=/usr/bin/python3 -m tracker run -c /opt/ebay-tracker/profiles.toml
+Restart=always
+RestartSec=30
+
+# The tracker needs to write only its own database.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/ebay-tracker
+
+[Install]
+WantedBy=multi-user.target
