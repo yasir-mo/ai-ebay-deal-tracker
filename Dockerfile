@@ -5,7 +5,9 @@ RUN useradd --create-home --uid 10001 tracker
 
 WORKDIR /app
 
-COPY requirements.txt .
+# Runtime dependencies only. pytest is for development and anthropic is an
+# optional extra, so neither belongs in the image; add anthropic here if you
+# enable the model judging stage.
 RUN pip install --no-cache-dir requests pydantic \
  && rm -rf /root/.cache/pip
 

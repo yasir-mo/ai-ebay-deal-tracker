@@ -1,6 +1,7 @@
 .env
 profiles.toml
 *.db
+*.log
 *.db-wal
 *.db-shm
 __pycache__/

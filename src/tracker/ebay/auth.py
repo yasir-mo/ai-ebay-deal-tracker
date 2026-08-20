@@ -17,7 +17,11 @@ EXPIRY_MARGIN = 60
 
 
 class AuthError(Exception):
-    pass
+    """Raised when a token cannot be obtained.
+
+    Subclassed from Exception rather than BrowseError to avoid a circular
+    import; the scheduler catches both explicitly.
+    """
 
 
 class TokenProvider:

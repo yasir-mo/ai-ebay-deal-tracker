@@ -97,7 +97,9 @@ def load_settings(
         telegram_chat_id=os.environ.get("TELEGRAM_CHAT_ID", ""),
         marketplace=raw.get("marketplace", "EBAY_GB"),
         currency=raw.get("currency", "GBP"),
-        db_path=raw.get("db_path", "tracker.db"),
+        # TRACKER_DB lets a container point at its mounted volume without
+        # needing a modified config file baked into the image.
+        db_path=os.environ.get("TRACKER_DB") or raw.get("db_path", "tracker.db"),
         sweep_minutes=int(raw.get("sweep_minutes", 30)),
         endgame_seconds=int(raw.get("endgame_seconds", 60)),
         endgame_horizon_minutes=int(raw.get("endgame_horizon_minutes", 15)),

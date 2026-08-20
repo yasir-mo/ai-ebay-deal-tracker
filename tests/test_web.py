@@ -426,3 +426,60 @@ class TestHistoryDefault:
         )
         html = Dashboard(store, SETTINGS).history("rtx")
         assert 'value="rtx" selected' in html
+
+
+class TestConnectionHandling:
+    def test_client_hangup_does_not_log_a_traceback(self, dash, caplog):
+        """Health checks and browsers close early constantly; a stack trace
+        for each one buries real errors."""
+        import logging
+        import socket
+
+        httpd = serve(dash, "127.0.0.1", 0, None)
+        port = httpd.server_address[1]
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+
+        with caplog.at_level(logging.ERROR, logger="tracker.web.server"):
+            sock = socket.create_connection(("127.0.0.1", port))
+            sock.sendall(b"GET / HTTP/1.1\r\nHost: x\r\n\r\n")
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER,
+                            __import__("struct").pack("ii", 1, 0))
+            sock.close()
+            threading.Event().wait(0.4)
+
+        httpd.shutdown()
+        httpd.server_close()
+        assert "Traceback" not in caplog.text
+
+    def test_real_errors_are_still_logged(self, dash):
+        """Quieting hangups must not quiet genuine failures."""
+        from tracker.web.server import _QuietThreadingHTTPServer
+
+        assert hasattr(_QuietThreadingHTTPServer, "handle_error")
+        assert _QuietThreadingHTTPServer.daemon_threads is True
+
+
+class TestHealthEndpointAuth:
+    def test_healthz_needs_no_token(self, dash):
+        """Container and service health checks cannot supply one, so a
+        token-gated /healthz makes every deployment report unhealthy."""
+        httpd = serve(dash, "127.0.0.1", 0, "s3cret")
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        base = f"http://127.0.0.1:{httpd.server_address[1]}"
+        try:
+            assert get(base, "/healthz") == (200, "ok")
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+
+    def test_other_pages_still_need_the_token(self, dash):
+        httpd = serve(dash, "127.0.0.1", 0, "s3cret")
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        base = f"http://127.0.0.1:{httpd.server_address[1]}"
+        try:
+            with pytest.raises(urllib.error.HTTPError) as exc:
+                get(base, "/")
+            assert exc.value.code == 401
+        finally:
+            httpd.shutdown()
+            httpd.server_close()

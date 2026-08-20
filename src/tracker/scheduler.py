@@ -11,6 +11,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 from .config import Settings
+from .ebay.auth import AuthError
 from .ebay.browse import BrowseClient, BrowseError
 from .margin import MarginConfig, estimate as estimate_margin
 from .models import ConditionBucket, Profile, Verdict
@@ -66,8 +67,9 @@ class Tracker:
                     limit=self.settings.results_per_profile,
                     filters=profile.filters,
                 )
-            except BrowseError as exc:
-                # One failing search must not abort the whole sweep.
+            except (BrowseError, AuthError) as exc:
+                # One failing search must not abort the whole sweep, and bad
+                # credentials are a counted error rather than a crash.
                 log.error("profile %s search failed: %s", profile.id, exc)
                 stats["errors"] += 1
                 self.errors_this_period += 1
@@ -112,7 +114,7 @@ class Tracker:
                 continue
             try:
                 raw = self.client.get_item(stale.item_id)
-            except BrowseError as exc:
+            except (BrowseError, AuthError) as exc:
                 log.warning("endgame refresh failed for %s: %s", stale.item_id, exc)
                 stats["errors"] += 1
                 continue

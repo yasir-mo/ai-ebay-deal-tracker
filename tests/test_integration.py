@@ -482,3 +482,21 @@ class TestPriorityPromotion:
         tracker, _, notifier, _ = rig_with_judge(rig, [page], {"meh": GOOD})
         tracker.sweep(NOW)
         assert not any("PRIORITY" in m for m in notifier.sent)
+
+
+class TestCredentialFailure:
+    def test_bad_credentials_are_counted_not_crashed_on(self, rig):
+        """An expired keyset should not traceback on every sweep."""
+        from tracker.ebay.auth import AuthError
+
+        tracker, _, notifier, client = rig([[item("a", 600)]])
+
+        def bad_auth(*a, **kw):
+            raise AuthError("token request failed: 401 invalid_client")
+
+        client.search = bad_auth
+        stats = tracker.sweep(NOW)
+
+        assert stats["errors"] == 1
+        assert stats["alerts"] == 0
+        assert tracker.errors_this_period == 1

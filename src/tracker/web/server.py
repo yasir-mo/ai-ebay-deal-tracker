@@ -288,7 +288,9 @@ def make_handler(dashboard: Dashboard, token: str | None):
             parsed = urllib.parse.urlparse(self.path)
             query = urllib.parse.parse_qs(parsed.query)
 
-            if not self._authorised(query):
+            # /healthz is exempt: it returns a fixed string and leaks nothing,
+            # and container and service health checks cannot supply a token.
+            if parsed.path != "/healthz" and not self._authorised(query):
                 self._send("<h1>401</h1><p>Missing or bad token.</p>", 401)
                 return
 
@@ -364,6 +366,26 @@ def _cookie_token(cookie_header: str) -> str:
     return ""
 
 
+class _QuietThreadingHTTPServer(ThreadingHTTPServer):
+    """Do not dump a traceback when a client hangs up mid-request.
+
+    Browsers, health checks, and the dashboard's own polling routinely close
+    connections early. The stdlib default logs a full stack trace for each one,
+    which buries real errors in a long-running service's log.
+    """
+
+    daemon_threads = True
+
+    def handle_error(self, request, client_address):
+        import sys
+
+        exc = sys.exc_info()[1]
+        if isinstance(exc, (ConnectionResetError, ConnectionAbortedError, BrokenPipeError)):
+            log.debug("client %s disconnected: %s", client_address, exc)
+            return
+        log.exception("error handling request from %s", client_address)
+
+
 def serve(dashboard: Dashboard, host: str, port: int, token: str | None):
     """Create the server. The caller decides whether to block or thread it."""
     if host not in ("127.0.0.1", "localhost", "::1") and not token:
@@ -372,7 +394,7 @@ def serve(dashboard: Dashboard, host: str, port: int, token: str | None):
             "records purchases and edits tracking should not be open on the "
             "network. Set web_token in profiles.toml, or bind 127.0.0.1."
         )
-    return ThreadingHTTPServer((host, port), make_handler(dashboard, token))
+    return _QuietThreadingHTTPServer((host, port), make_handler(dashboard, token))
 
 
 def start_in_thread(dashboard: Dashboard, host: str, port: int, token: str | None):

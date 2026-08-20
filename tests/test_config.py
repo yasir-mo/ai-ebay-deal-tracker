@@ -109,3 +109,16 @@ class TestSettings:
             load_settings(config())
         for k in ENV:
             assert k in str(exc.value)
+
+
+class TestDatabasePathOverride:
+    def test_env_var_overrides_the_config_file(self, config, env, monkeypatch):
+        """Containers point at a mounted volume without a modified config."""
+        monkeypatch.setenv("TRACKER_DB", "/data/tracker.db")
+        assert load_settings(config()).db_path == "/data/tracker.db"
+
+    def test_config_file_wins_when_env_is_unset(self, config, env, monkeypatch):
+        monkeypatch.delenv("TRACKER_DB", raising=False)
+        text = GOOD.replace('marketplace = "EBAY_GB"',
+                            'marketplace = "EBAY_GB"\ndb_path = "custom.db"')
+        assert load_settings(config(text)).db_path == "custom.db"
