@@ -4,10 +4,11 @@ from tracker.ebay.browse import BrowseClient, BrowseError, RateLimited
 
 
 class FakeResponse:
-    def __init__(self, status_code, payload=None, text=""):
+    def __init__(self, status_code, payload=None, text="", headers=None):
         self.status_code = status_code
         self._payload = payload or {}
         self.text = text
+        self.headers = headers or {}
 
     def json(self):
         return self._payload
@@ -147,3 +148,65 @@ class TestRetries:
         c.search("a")
         c.search("b")
         assert c.calls_made == 2
+
+
+class TestRetryAfterCompliance:
+    def test_retry_after_header_overrides_backoff(self):
+        """When the server says how long to wait, waiting less is wrong."""
+        c, slept = client([
+            FakeResponse(429, headers={"Retry-After": "30"}),
+            FakeResponse(200, {}),
+        ])
+        c.search("thing")
+        assert slept == [30.0]
+
+    def test_retry_after_honoured_on_503(self):
+        c, slept = client([
+            FakeResponse(503, headers={"Retry-After": "12"}),
+            FakeResponse(200, {}),
+        ])
+        c.search("thing")
+        assert slept == [12.0]
+
+    def test_absent_header_falls_back_to_exponential_backoff(self):
+        c, slept = client([FakeResponse(429), FakeResponse(200, {})])
+        c.search("thing")
+        assert slept == [1.0]
+
+    def test_absurd_retry_after_is_clamped(self):
+        """A misconfigured header must not wedge the tracker for a week."""
+        from tracker.ebay.limits import MAX_RETRY_AFTER
+
+        c, slept = client([
+            FakeResponse(429, headers={"Retry-After": "999999"}),
+            FakeResponse(200, {}),
+        ])
+        c.search("thing")
+        assert slept == [float(MAX_RETRY_AFTER)]
+
+    def test_garbage_header_falls_back(self):
+        c, slept = client([
+            FakeResponse(429, headers={"Retry-After": "next tuesday"}),
+            FakeResponse(200, {}),
+        ])
+        c.search("thing")
+        assert slept == [1.0]
+
+
+class TestCallBudget:
+    def test_budget_stops_requests(self):
+        from tracker.ebay.limits import CallBudget
+
+        c = BrowseClient(FakeTokens(), session=FakeSession([FakeResponse(200, {})] * 5),
+                         sleep=lambda s: None, budget=CallBudget(limit=2))
+        c.search("a")
+        with pytest.raises(BrowseError, match="budget"):
+            c.search("b")
+            c.search("c")
+
+    def test_budget_reports_remaining(self):
+        from tracker.ebay.limits import CallBudget
+
+        b = CallBudget(limit=10)
+        b.consume(3)
+        assert b.remaining == 7

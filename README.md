@@ -133,6 +133,25 @@ Known limitation: a seller relisting under a new item id will alert again.
   searches are still too new to have a real baseline. If the tracker dies
   quietly you would otherwise not notice for days.
 
+## Not getting blocked
+
+Three guards, because being quietly banned is a worse failure than crashing.
+
+**An authentication circuit breaker.** Wrong credentials never fix themselves,
+so presenting them on a schedule is both useless and the fastest way to get an
+address blocked. After two consecutive `invalid_client` style failures the
+tracker stops calling the token endpoint at all for 15 minutes, doubling each
+time it reopens up to a day. Transient failures (429, 5xx) do not count toward
+it. The heartbeat says plainly when authentication is paused.
+
+**Retry-After compliance.** When eBay states how long to wait, the tracker
+waits that long rather than guessing something shorter, clamped to 15 minutes
+so a bad header cannot wedge it.
+
+**A local daily call ceiling**, defaulting to 4000. eBay's production quota is
+higher; the point is that a scheduler bug costs a wasted day of polling rather
+than an API ban.
+
 ## API quota
 
 One search call per profile per sweep. Twenty searches on a 30 minute sweep is
@@ -146,7 +165,7 @@ in the developer console; `scripts/smoke.py` prints where to look.
 python -m pytest tests/ -q
 ```
 
-244 tests, no network access required and no API keys. The important ones are
+283 tests, no network access required and no API keys. The important ones are
 in `test_scoring.py` (what counts as a deal), `test_normalise.py` (parsing real
 API responses), `test_browse.py` (filter syntax and retry behaviour),
 `test_ai_stage.py` (judging, budget enforcement, refusal and failure handling)

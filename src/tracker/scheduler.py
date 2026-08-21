@@ -153,6 +153,16 @@ class Tracker:
         ]
         if self.errors_this_period:
             lines.append(f"⚠ Errors since last heartbeat: {self.errors_this_period}")
+
+        breaker = getattr(getattr(self.client, "_tokens", None), "breaker", None)
+        if breaker is not None and breaker.is_open:
+            lines.append(
+                "⛔ eBay authentication paused after repeated failures. "
+                "Check EBAY_CLIENT_ID and EBAY_CLIENT_SECRET."
+            )
+        budget = getattr(self.client, "budget", None)
+        if budget is not None and budget.remaining < 200:
+            lines.append(f"⚠ Only {budget.remaining} API calls left in today's budget.")
         if cold:
             lines.append(
                 f"Still building baselines (<{MIN_SAMPLES} samples): {', '.join(cold)}"

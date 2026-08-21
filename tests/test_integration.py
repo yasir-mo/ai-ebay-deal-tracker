@@ -500,3 +500,29 @@ class TestCredentialFailure:
         assert stats["errors"] == 1
         assert stats["alerts"] == 0
         assert tracker.errors_this_period == 1
+
+
+class TestRateLimitVisibility:
+    def test_heartbeat_reports_paused_authentication(self, rig):
+        """A blocked-credentials state must be visible, not silent."""
+        from tracker.ebay.limits import AuthCircuitBreaker
+
+        tracker, _, _, client = rig([[]])
+        b = AuthCircuitBreaker(threshold=1)
+        b.record_failure()
+        client._tokens = type("T", (), {"breaker": b})()
+
+        assert "authentication paused" in tracker.heartbeat(NOW)
+
+    def test_heartbeat_warns_when_budget_runs_low(self, rig):
+        from tracker.ebay.limits import CallBudget
+
+        tracker, _, _, client = rig([[]])
+        client.budget = CallBudget(limit=10)
+        assert "calls left in today's budget" in tracker.heartbeat(NOW)
+
+    def test_healthy_heartbeat_mentions_neither(self, rig):
+        tracker, _, _, _ = rig([[]])
+        text = tracker.heartbeat(NOW)
+        assert "authentication paused" not in text
+        assert "budget" not in text

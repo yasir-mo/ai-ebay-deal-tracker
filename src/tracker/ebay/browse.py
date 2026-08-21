@@ -7,6 +7,7 @@ import time
 import requests
 
 from .auth import TokenProvider
+from .limits import CallBudget, QuotaExceeded, parse_retry_after
 
 log = logging.getLogger(__name__)
 
@@ -32,12 +33,14 @@ class BrowseClient:
         currency: str = "GBP",
         session=None,
         sleep=time.sleep,
+        budget: CallBudget | None = None,
     ):
         self._tokens = tokens
         self._marketplace = marketplace
         self._currency = currency
         self._session = session or requests.Session()
         self._sleep = sleep
+        self.budget = budget or CallBudget()
         self.calls_made = 0
 
     def _headers(self) -> dict:
@@ -55,7 +58,15 @@ class BrowseClient:
         """
         last_error = None
         for attempt in range(MAX_ATTEMPTS):
+            # A local ceiling so a scheduler bug costs a wasted day of polling
+            # rather than an API ban.
+            try:
+                self.budget.consume()
+            except QuotaExceeded as exc:
+                raise BrowseError(str(exc)) from exc
+
             self.calls_made += 1
+            retry_after = None
             try:
                 resp = self._session.get(
                     f"{BASE}{path}",
@@ -70,15 +81,23 @@ class BrowseClient:
                     return resp.json()
                 if resp.status_code == 429:
                     last_error = RateLimited("rate limited by eBay")
+                    retry_after = parse_retry_after(
+                        resp.headers.get("Retry-After"), None
+                    )
                 elif 500 <= resp.status_code < 600:
                     last_error = BrowseError(f"server error {resp.status_code}")
+                    retry_after = parse_retry_after(
+                        resp.headers.get("Retry-After"), None
+                    )
                 else:
                     raise BrowseError(
                         f"{resp.status_code} {resp.text[:300]}"
                     )
 
             if attempt < MAX_ATTEMPTS - 1:
-                delay = BACKOFF_BASE**attempt
+                # When the server says how long to wait, waiting less is the
+                # wrong answer.
+                delay = retry_after if retry_after else BACKOFF_BASE**attempt
                 log.warning(
                     "%s - retrying in %.0fs (attempt %d/%d)",
                     last_error,
