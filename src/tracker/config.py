@@ -116,7 +116,13 @@ def load_settings(
         # A container must bind 0.0.0.0 for its platform's proxy to reach it,
         # so allow that without baking a bespoke config file into the image.
         web_host=os.environ.get("WEB_HOST") or str(web.get("host", "127.0.0.1")),
-        web_port=int(os.environ.get("WEB_PORT") or web.get("port", 8000)),
+        # PORT is what Railway, Heroku and most PaaS hosts inject; WEB_PORT is
+        # the explicit override for everything else.
+        web_port=int(
+            os.environ.get("PORT")
+            or os.environ.get("WEB_PORT")
+            or web.get("port", 8000)
+        ),
         web_token=os.environ.get("WEB_TOKEN") or web.get("token") or None,
     )
 

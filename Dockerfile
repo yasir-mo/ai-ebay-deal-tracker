@@ -30,8 +30,10 @@ USER tracker
 VOLUME ["/data"]
 EXPOSE 8000
 
+# Honours PORT when the platform injects one (Railway, Heroku and similar),
+# otherwise falls back to the port the config file sets.
 HEALTHCHECK --interval=60s --timeout=5s --start-period=15s --retries=3 \
-  CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz',timeout=4).status==200 else 1)"
+  CMD python -c "import os,urllib.request,sys; p=os.environ.get('PORT','8000'); sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:'+p+'/healthz',timeout=4).status==200 else 1)"
 
 ENTRYPOINT ["python", "-m", "tracker"]
 CMD ["run", "-c", "/app/config/profiles.toml"]

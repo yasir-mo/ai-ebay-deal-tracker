@@ -137,3 +137,20 @@ class TestContainerBinding:
     def test_config_file_wins_when_env_unset(self, config, env, monkeypatch):
         monkeypatch.delenv("WEB_HOST", raising=False)
         assert load_settings(config()).web_host == "127.0.0.1"
+
+
+class TestPlatformPort:
+    def test_railway_style_port_is_used(self, config, env, monkeypatch):
+        """Railway and most PaaS hosts inject PORT and expect the app to bind it."""
+        monkeypatch.setenv("PORT", "4567")
+        assert load_settings(config()).web_port == 4567
+
+    def test_port_beats_web_port(self, config, env, monkeypatch):
+        monkeypatch.setenv("PORT", "4567")
+        monkeypatch.setenv("WEB_PORT", "9999")
+        assert load_settings(config()).web_port == 4567
+
+    def test_falls_back_to_config_file(self, config, env, monkeypatch):
+        for v in ("PORT", "WEB_PORT"):
+            monkeypatch.delenv(v, raising=False)
+        assert load_settings(config()).web_port == 8000

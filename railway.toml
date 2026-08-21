@@ -1,0 +1,24 @@
+# Railway deployment.
+#
+# Two settings below are load-bearing for a scheduler rather than a web app:
+#
+#   restartPolicyType = ALWAYS
+#     The tracker is meant to run continuously. Without this a crash leaves it
+#     stopped and nothing tells you; sweeps just quietly stop happening.
+#
+#   A volume mounted at /data (configured in the Railway dashboard, not here)
+#     The accumulated price history is the entire basis for judging a deal.
+#     Without a volume it is wiped on every deploy and the tracker can never
+#     build a baseline, so it runs forever without alerting on anything.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "python -m tracker run -c /app/config/profiles.toml"
+restartPolicyType = "ALWAYS"
+restartPolicyMaxRetries = 10
+healthcheckPath = "/healthz"
+healthcheckTimeout = 30
+numReplicas = 1
