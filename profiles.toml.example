@@ -16,7 +16,7 @@ dry_run                = true
 # requires a token, since the dashboard records purchases and edits tracking.
 [web]
 enabled = true
-host    = "127.0.0.1"
+host    = "127.0.0.1"     # use "0.0.0.0" in a container; requires a token
 port    = 8000
 # token = "set-a-long-random-string"   # or set WEB_TOKEN in .env
 

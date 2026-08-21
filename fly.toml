@@ -1,0 +1,38 @@
+# Fly.io deployment. See the deployment guide for the full walkthrough.
+#
+# The tracker is a scheduler, not a web service that can sleep between
+# requests: auto_stop_machines must stay false or sweeps silently stop
+# happening and you will think it is working when it is not.
+
+app = "ebay-deal-tracker"
+primary_region = "lhr"          # London, close to eBay UK
+
+[build]
+
+[env]
+  TRACKER_DB = "/data/tracker.db"
+  PYTHONIOENCODING = "utf-8"
+  PYTHONUNBUFFERED = "1"
+
+[[mounts]]
+  source = "tracker_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = false
+  min_machines_running = 1
+
+  [http_service.checks]
+    [[http_service.checks.http]]
+      interval = "60s"
+      timeout = "5s"
+      grace_period = "20s"
+      method = "GET"
+      path = "/healthz"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

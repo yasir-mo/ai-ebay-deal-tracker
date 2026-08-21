@@ -113,8 +113,10 @@ def load_settings(
         ai_daily_budget_pence=_pounds_to_pence(ai.get("daily_budget", 200)),
         ai_api_key=os.environ.get("ANTHROPIC_API_KEY"),
         web_enabled=bool(web.get("enabled", True)),
-        web_host=str(web.get("host", "127.0.0.1")),
-        web_port=int(web.get("port", 8000)),
+        # A container must bind 0.0.0.0 for its platform's proxy to reach it,
+        # so allow that without baking a bespoke config file into the image.
+        web_host=os.environ.get("WEB_HOST") or str(web.get("host", "127.0.0.1")),
+        web_port=int(os.environ.get("WEB_PORT") or web.get("port", 8000)),
         web_token=os.environ.get("WEB_TOKEN") or web.get("token") or None,
     )
 

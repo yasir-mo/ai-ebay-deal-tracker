@@ -14,10 +14,16 @@ RUN pip install --no-cache-dir requests pydantic \
 COPY src/ ./src/
 COPY scripts/ ./scripts/
 
+# A default config so a deploy with no bind mount still boots. It seeds the
+# database on the volume on first run; after that the dashboard is where
+# searches are managed and this file is not consulted again.
+COPY profiles.toml.example ./config/profiles.toml
+
 ENV PYTHONPATH=/app/src \
     PYTHONIOENCODING=utf-8 \
     PYTHONUNBUFFERED=1 \
-    TRACKER_DB=/data/tracker.db
+    TRACKER_DB=/data/tracker.db \
+    WEB_HOST=0.0.0.0
 
 RUN mkdir -p /data && chown tracker:tracker /data
 USER tracker

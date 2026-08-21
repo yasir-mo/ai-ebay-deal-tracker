@@ -216,13 +216,28 @@ so put TLS in front of it on any network you do not control.
 
 ## Deployment
 
+Locally with Docker:
+
 ```bash
 cp .env.example .env && cp profiles.toml.example profiles.toml
 docker compose up -d
 ```
 
-See [deploy/README.md](deploy/README.md) for the systemd unit, backups, and
-the remote-access options.
+To the cloud, `fly.toml` is ready to use. The tracker is a scheduler rather
+than a web service, so any host that sleeps an idle process is the wrong
+choice: the sweeps stop and nothing tells you. It also needs a persistent
+volume, since the accumulated price history is the entire basis for judging a
+deal.
+
+```bash
+fly launch --no-deploy --copy-config --name your-tracker
+fly volumes create tracker_data --size 1 --region lhr
+fly secrets set EBAY_CLIENT_ID=... EBAY_CLIENT_SECRET=...                 TELEGRAM_BOT_TOKEN=... TELEGRAM_CHAT_ID=... WEB_TOKEN=...
+fly deploy
+```
+
+See [deploy/README.md](deploy/README.md) for the systemd unit, the Windows
+launcher, backups, and remote access.
 
 ## The model stage
 

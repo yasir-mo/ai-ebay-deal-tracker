@@ -122,3 +122,18 @@ class TestDatabasePathOverride:
         text = GOOD.replace('marketplace = "EBAY_GB"',
                             'marketplace = "EBAY_GB"\ndb_path = "custom.db"')
         assert load_settings(config(text)).db_path == "custom.db"
+
+
+class TestContainerBinding:
+    def test_web_host_env_override(self, config, env, monkeypatch):
+        """A container binds 0.0.0.0 so its platform proxy can reach it."""
+        monkeypatch.setenv("WEB_HOST", "0.0.0.0")
+        assert load_settings(config()).web_host == "0.0.0.0"
+
+    def test_web_port_env_override(self, config, env, monkeypatch):
+        monkeypatch.setenv("WEB_PORT", "9999")
+        assert load_settings(config()).web_port == 9999
+
+    def test_config_file_wins_when_env_unset(self, config, env, monkeypatch):
+        monkeypatch.delenv("WEB_HOST", raising=False)
+        assert load_settings(config()).web_host == "127.0.0.1"
